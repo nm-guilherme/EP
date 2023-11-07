@@ -26,7 +26,7 @@ def read_inputs(path) -> Tuple[list[Cargo], str]:
     dangerous_area = "area_" + str(n_destinations)
     return cargos, dangerous_area
 
-def main(H, H_DG, W, T, W_CORREDOR, x_HS, y_HS, time_max, path="Plano de Estivagem - Copy.xlsx"):
+def main(H, H_DG, W, T, W_CORREDOR, x_HS, y_HS, time_max, path="Plano de Estivagem - Copy - Copy.xlsx"):
     logging.info("Reading inputs...")
     cargos, dangerous_area = read_inputs(path)
     cargos_id_list = [c.cargo_id for c in cargos]
@@ -40,13 +40,11 @@ def main(H, H_DG, W, T, W_CORREDOR, x_HS, y_HS, time_max, path="Plano de Estivag
     for cargo in optimal_cargos_stage1:
         print(f"{cargo.cargo_id}: W = {cargo.w}; H = {cargo.h}, Area = {cargo.area}")
     logging.info("Executing Stage 2...")
-    stage_2(ship, optimal_cargos_stage1, time_max)
-    for area in ship.areas.values():
-        print(f"{area.area_id}: W= {area.w} e H={area.h}; x = {area.x} e y = {area.y}")
+    a_areas, b_areas, c_areas, d_areas = stage_2(ship, optimal_cargos_stage1, time_max)
     im.plot_areas(ship=ship)
     logging.info("Ship areas plotted!")
     logging.info("Executing Stage 3")
-    stage_3(ship, optimal_cargos_stage1, cargos, x_HS, y_HS) 
+    stage_3(ship, optimal_cargos_stage1, cargos, x_HS, y_HS, a_areas, b_areas, c_areas, d_areas) 
     im.plot_cargos(ship=ship)
     logging.info("Stowing plan executed!")
     for c in cargos:

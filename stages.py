@@ -2,7 +2,7 @@ import gurobipy as gp
 from gurobipy import GRB
 from get_cargo_sets import *
 from stowing_classes import Cargo, Ship
-gp.setParam("LogToConsole", 0) 
+# gp.setParam("LogToConsole", 0) 
 
 def stage_1(cargos: list[Cargo], ship: Ship, cargos_id_list) -> list[Cargo]:
     m1 = gp.Model("Estágio1")
@@ -29,10 +29,10 @@ def stage_2(ship: Ship, optimal_cargos_stage1: list[Cargo], time_max: int=60) ->
     m2.setParam(GRB.Param.NonConvex, 2)
     BETA= 1.5*ship.H/ship.W if ship.H/ship.W>ship.W/ship.H else 1.5*ship.W/ship.H
 
-    w_areas = m2.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, name='w')
-    h_areas = m2.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, name='h')
-    x_areas = m2.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, name='x')
-    y_areas = m2.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, name='y')
+    w_areas = m2.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, lb=0.0, name='w')
+    h_areas = m2.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, lb=0.0, name='h')
+    x_areas = m2.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, lb=0.0, name='x')
+    y_areas = m2.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, lb=0.0, name='y')
 
     a_kl_areas = m2.addVars(ship.areas_id, ship.areas_id, vtype=GRB.BINARY, name='a')
     b_kl_areas = m2.addVars(ship.areas_id, ship.areas_id, vtype=GRB.BINARY, name='b')
@@ -90,24 +90,38 @@ def stage_2(ship: Ship, optimal_cargos_stage1: list[Cargo], time_max: int=60) ->
     solution_w = m2.getAttr("X", w_areas)
     solution_h = m2.getAttr("X", h_areas)
 
+    a_areas = m2.getAttr("X", a_kl_areas)
+    b_areas = m2.getAttr("X", b_kl_areas)
+    c_areas = m2.getAttr("X", c_kl_areas)
+    d_areas = m2.getAttr("X", d_kl_areas)
+
     for k in ship.areas_id:
         ship.areas[k].x = solution_x[k]
         ship.areas[k].y = solution_y[k]
         ship.areas[k].w = solution_w[k]
         ship.areas[k].h = solution_h[k]
 
-def stage_3(ship: Ship, optimal_cargos_stage1: list[Cargo], cargos: list[Cargo], x_HS: dict, y_HS: dict) -> None:
+    return a_areas, b_areas, c_areas, d_areas
+
+def stage_3(ship: Ship, optimal_cargos_stage1: list[Cargo], cargos: list[Cargo], 
+            x_HS: dict, y_HS: dict, a_areas, b_areas, c_areas, d_areas) -> None:
 
     m3 = gp.Model("Estágio3")
     m3.setParam(GRB.Param.TimeLimit, 90)
     optimal_cargos_id_list = [c.cargo_id for c in optimal_cargos_stage1]
-    z = m3.addVars(optimal_cargos_id_list, vtype=GRB.CONTINUOUS, name='z')
+    z = m3.addVars(optimal_cargos_id_list, vtype=GRB.BINARY, name='z')
     x = m3.addVars(optimal_cargos_id_list, vtype=GRB.CONTINUOUS, name='x')
     y = m3.addVars(optimal_cargos_id_list, vtype=GRB.CONTINUOUS, name='y')
+
     a = m3.addVars(optimal_cargos_id_list,optimal_cargos_id_list, vtype=GRB.BINARY, name='a')
     b = m3.addVars(optimal_cargos_id_list,optimal_cargos_id_list, vtype=GRB.BINARY, name='b')
     c = m3.addVars(optimal_cargos_id_list,optimal_cargos_id_list, vtype=GRB.BINARY, name='c')
     d = m3.addVars(optimal_cargos_id_list,optimal_cargos_id_list, vtype=GRB.BINARY, name='d')
+
+    w_areas = m3.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, name='w_a')
+    h_areas = m3.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, name='h_a')
+    x_areas = m3.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, name='x_a')
+    y_areas = m3.addVars(ship.areas_id, vtype=GRB.CONTINUOUS, name='y_a')
 
     C_AUX = get_C_AUX(optimal_cargos_stage1)
 
@@ -121,6 +135,7 @@ def stage_3(ship: Ship, optimal_cargos_stage1: list[Cargo], cargos: list[Cargo],
             m3.addConstr(b[c_i,c_j] <= 0.5*(z[c_i] + z[c_j]))
             m3.addConstr(c[c_i,c_j] <= 0.5*(z[c_i] + z[c_j]))
             m3.addConstr(d[c_i,c_j] <= 0.5*(z[c_i] + z[c_j]))
+            
             m3.addConstr(a[c_i,c_j] + b[c_i,c_j] + c[c_i,c_j] + d[c_i,c_j] <= 1)
             m3.addConstr(a[c_i,c_j] + b[c_i,c_j] + c[c_i,c_j] + d[c_i,c_j] >= z[c_i] + z[c_j] - 1)
 
@@ -131,22 +146,54 @@ def stage_3(ship: Ship, optimal_cargos_stage1: list[Cargo], cargos: list[Cargo],
 
     for cargo_i in optimal_cargos_stage1:
         c_i = cargo_i.cargo_id
+        a_i = cargo_i.area
         if not cargo_i.restricted_area:
-            m3.addConstr(x[c_i] >= ship.areas[cargo_i.area].x - ship.W*(1-z[c_i]))
-            m3.addConstr(x[c_i] + cargo_i.w <= ship.areas[cargo_i.area].x + ship.areas[cargo_i.area].w - ship.W*(1-z[c_i]))
-            m3.addConstr(y[c_i] >= ship.areas[cargo_i.area].y - ship.H*(1-z[c_i]))
-            m3.addConstr(y[c_i] + cargo_i.h <= ship.areas[cargo_i.area].y + ship.areas[cargo_i.area].h - ship.H*(1-z[c_i]))
+            m3.addConstr(x[c_i] >= x_areas[a_i] - ship.W*(1-z[c_i]))
+            m3.addConstr(x[c_i] + cargo_i.w <= x_areas[a_i] + w_areas[a_i] - ship.W*(1-z[c_i]))
+            m3.addConstr(y[c_i] >= y_areas[a_i] - ship.H*(1-z[c_i]))
+            m3.addConstr(y[c_i] + cargo_i.h <= y_areas[a_i] + h_areas[a_i] - ship.H*(1-z[c_i]))
         
         if cargo_i.urgent or cargo_i.restricted_area:
-            m3.addConstr(z[cargo_i.cargo_id]==1)
+            m3.addConstr(z[c_i]==1, name='125')
         
-        # if cargo_i.restricted_area:
-        #     m3.addConstr(x[c_i]==x_HS[c_i])
-        #     m3.addConstr(y[c_i]==y_HS[c_i])
-
+        if cargo_i.restricted_area:
+            m3.addConstr(x[c_i]==x_HS[c_i], name='126')
+            m3.addConstr(y[c_i]==y_HS[c_i], name='127')
 
     C_REF = [c.cargo_id for c in optimal_cargos_stage1 if c.refrigerated]
-    m3.addConstr(gp.quicksum(z[i] for i in C_REF) <= ship.T)
+
+    m3.addConstr(gp.quicksum(z[i] for i in C_REF) <= ship.T, name='128')
+
+    m3.addConstrs((x_areas[k]+w_areas[k]<=ship.W for k in ship.areas_id), name="129")
+    m3.addConstrs((y_areas[k]+h_areas[k]<=ship.H for k in ship.areas_id), name="130")
+
+    m3.addConstr(w_areas["area_0"]==ship.W_CORREDOR, name="132")
+    m3.addConstr(h_areas["area_0"]==ship.H, name="133")
+    m3.addConstr(x_areas["area_0"]>=0.35*ship.W, name="134")
+    m3.addConstr(x_areas["area_0"]<=0.65*ship.W, name="135")
+
+    m3.addConstr(h_areas[ship.dangerous_area]<=ship.H_DG, name="136")
+    m3.addConstr(y_areas[ship.dangerous_area]==0, name="137")
+
+    # m3.addConstrs((x[i]>=0 for i in optimal_cargos_id_list), name="138_x")
+    # m3.addConstrs((y[i]>=0 for i in optimal_cargos_id_list), name="138_y")
+
+    #non-overlapping constraint
+    for k in ship.areas_id:
+        for l in ship.areas_id:
+            if a_areas[k,l]==1:
+                m3.addConstr(x_areas[k]+w_areas[k]<=x_areas[l])
+            if b_areas[k,l]==1:
+                m3.addConstr(x_areas[l]+w_areas[l]<=x_areas[k])
+            if c_areas[k,l]==1:
+                m3.addConstr(y_areas[k]+h_areas[k]<=y_areas[l])
+            if d_areas[k,l]==1:
+                m3.addConstr(y_areas[l]+h_areas[l]<=y_areas[k])
+
+    m3.addConstrs((x_areas[k]>=0 for k in ship.areas_id), name="140_x")
+    m3.addConstrs((y_areas[k]>=0 for k in ship.areas_id), name="140_y")
+    m3.addConstrs((w_areas[k]>=0 for k in ship.areas_id), name="140_w")
+    m3.addConstrs((h_areas[k]>=0 for k in ship.areas_id), name="140_h")
 
     m3.setObjective(gp.quicksum(z[c.cargo_id]*c.priority for c in optimal_cargos_stage1), GRB.MAXIMIZE)
     m3.optimize()
