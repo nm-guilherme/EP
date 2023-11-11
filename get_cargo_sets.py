@@ -35,4 +35,4 @@ def get_C_AUX(optimal_cargos_stage1: list[Cargo]) -> list[tuple[Cargo, Cargo]]:
     C_AUX.extend(C_AUX_1)
     C_AUX.extend(C_AUX_2)
     C_AUX.extend(C_AUX_3)
-    return C_AUX
+    return list(set(C_AUX))

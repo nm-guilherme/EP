@@ -14,7 +14,7 @@ logging.basicConfig(format=FORMAT, level=logging.INFO)
 
 def read_inputs(path) -> Tuple[list[Cargo], str]:
     plan_dataframe = pd.read_excel(path, skiprows=3, usecols="A:I").set_index("carga")
-    plan_dataframe = plan_dataframe.set_axis(["carga_"+str(i) for i in plan_dataframe.index], copy=False)
+    # plan_dataframe = plan_dataframe.set_axis(["carga_"+str(i) for i in plan_dataframe.index], copy=False)
     n_destinations = len(plan_dataframe['destino'].unique())
     cargos_dict = plan_dataframe.T.to_dict()
     cargos = list()
