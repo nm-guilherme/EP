@@ -3,9 +3,10 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
 class Cargo():
-    def __init__(self, cargo_id, n_destinations, input_row) -> None:
+    def __init__(self, cargo_id, n_destinations, input_row, restricted_positions: dict) -> None:
         self.cargo_id = cargo_id
-        self.allocated = False
+        self.allocated: bool = False
+        self.rotated: bool = False
         self.x: float = None
         self.y: float = None
         self.w: float = input_row['w']
@@ -16,14 +17,16 @@ class Cargo():
         self.restricted_area: bool = True if input_row['área mangote']==1 else False
         self.priority: int = input_row['prioridade']
         self.destination = int(input_row['destino'])
-        self.set_area(n_destinations)
-    def set_area(self, n_destinations):
+        self.set_area(n_destinations, restricted_positions)
+    def set_area(self, n_destinations, restricted_positions):
         if self.dangerous:
-            self.area = "area_" + str(int(n_destinations))
+            self.area = n_destinations+1
         elif self.restricted_area:
-            self.area = "area_0"
+            self.area = 0
+            self.x = restricted_positions[self.cargo_id]['x']
+            self.y = restricted_positions[self.cargo_id]['y']
         else:
-            self.area = "area_" + str(self.destination)
+            self.area = self.destination
 
 class Area():
     def __init__(self, area_id) -> None:
@@ -36,7 +39,6 @@ class Area():
         self.cargos: list[Cargo] = list()
         self.color: str = None
         self.label: str = None
-
     @property
     def w(self):
         return self._w
@@ -61,20 +63,23 @@ class Ship():
         self.W = W
         self.T = T
         self.W_CORREDOR = W_CORREDOR
-    def set_areas(self, areas_id_list, dangerous_area):
-        self.dangerous_area = dangerous_area
-        self.areas = {area_id: Area(area_id) for area_id in areas_id_list} 
-        self.areas_id = areas_id_list
+    def set_areas(self, areas: list[Area], dangerous_area):
+        if dangerous_area:
+            self.dangerous_area = dangerous_area
+        else:
+            self.dangerous_area = None
+        self.areas = areas
+        self.areas_id = [area.area_id for area in self.areas]
         cmap = plt.get_cmap('tab20c')
-        norm = Normalize(vmin=0, vmax=len(areas_id_list))
-        for i, area in enumerate(self.areas.values()):
+        norm = Normalize(vmin=0, vmax=len(self.areas_id))
+        for area in self.areas:
             if area.area_id == self.dangerous_area:
                 area.color = 'red'
                 area.label = 'DG'
-            elif area.area_id == 'area_0':
+            elif area.area_id == 0:
                 area.color = 'grey'
-                area.label = '-'
+                area.label = 'C'
             else:
-                area.color = cmap(norm(i))
-                area.label = area.area_id.split('_')[-1]
+                area.color = cmap(norm(area.area_id))
+                area.label = area.area_id
     

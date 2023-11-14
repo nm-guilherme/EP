@@ -1,61 +1,67 @@
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname( __file__ ), '../..')))
-
+import time
 import logging
 import pandas as pd
 from typing import Tuple
 import image_maker as im
 from stages import stage_1, stage_2, stage_3
+from complete_model import MathematicalModel
 from stowing_classes import Cargo, Ship, Area
 
 FORMAT = '%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.INFO)
 
-def read_inputs(path) -> Tuple[list[Cargo], str]:
+def read_inputs(path, restricted_positions) -> Tuple[list[Cargo], str]:
     plan_dataframe = pd.read_excel(path, skiprows=3, usecols="A:I").set_index("carga")
-    # plan_dataframe = plan_dataframe.set_axis(["carga_"+str(i) for i in plan_dataframe.index], copy=False)
     n_destinations = len(plan_dataframe['destino'].unique())
     cargos_dict = plan_dataframe.T.to_dict()
     cargos = list()
+    dangerous_area = None
     for i in cargos_dict:
-        try:
-            cargos.append(Cargo(i, n_destinations, cargos_dict[i]))
-        except:
-            print(i)
-    dangerous_area = "area_" + str(n_destinations)
+        if cargos_dict[i]['carga perigosa'] == 1:
+            dangerous_area = n_destinations+1
+        cargos.append(Cargo(i, n_destinations, cargos_dict[i], restricted_positions))
     return cargos, dangerous_area
 
-def main(H, H_DG, W, T, W_CORREDOR, x_HS, y_HS, time_max, path="Plano de Estivagem - Copy - Copy.xlsx"):
+def main(H, H_DG, W, T, W_CORREDOR, restricted_positions, time_max=30, path="Plano de Estivagem.xlsx"):
     logging.info("Reading inputs...")
-    cargos, dangerous_area = read_inputs(path)
+    cargos, dangerous_area = read_inputs(path, restricted_positions)
+    
+    logging.info("Creating Cargos...")
     cargos_id_list = [c.cargo_id for c in cargos]
+
     logging.info("Creating Ship...")
     ship = Ship(H, H_DG, W, T, W_CORREDOR)
-    areas = [Area(area_id) for area_id in list(set([c.area for c in cargos]))]
-    areas_id_list = [a.area_id for a in areas]
-    ship.set_areas(areas_id_list, dangerous_area)
-    logging.info("Executing Stage 1...")
-    optimal_cargos_stage1 = stage_1(cargos, ship, cargos_id_list)
-    for cargo in optimal_cargos_stage1:
-        print(f"{cargo.cargo_id}: W = {cargo.w}; H = {cargo.h}, Area = {cargo.area}")
-    logging.info("Executing Stage 2...")
-    a_areas, b_areas, c_areas, d_areas = stage_2(ship, optimal_cargos_stage1, time_max)
-    im.plot_areas(ship=ship)
-    logging.info("Ship areas plotted!")
-    logging.info("Executing Stage 3")
-    stage_3(ship, optimal_cargos_stage1, cargos, x_HS, y_HS, a_areas, b_areas, c_areas, d_areas) 
-    im.plot_cargos(ship=ship)
-    logging.info("Stowing plan executed!")
-    for c in cargos:
-        print(c.cargo_id, c.x, c.y)
+    areas = [Area(0)]+[Area(area_id) for area_id in list(set([c.area for c in cargos if not c.restricted_area]))]
+    ship.set_areas(areas, dangerous_area)
+    
+    logging.info("Creating Model...")
+    model = MathematicalModel(time_max=time_max)
+    model.add_variables(ship, cargos, cargos_id_list)
+    model.add_area_constrains(ship)
+    model.add_cargos_constrains(cargos, ship)
+    logging.info("Executing Model...")
+    s = time.time()
+    model.solve_model(cargos_id_list)
+    e = time.time()
+    logging.info(f"Model executed in {e-s} seconds")
+    model.get_results(cargos, ship)
+    print(f"Total # of cargos: {len(cargos)}")
+    print(f"Total # of allocated cargos: {sum([1 if c.allocated else 0 for c in cargos])}")
+    area_cargos = sum([c.area for c in cargos if c.allocated])
+    ship_area = ship.W*ship.H-ship.W_CORREDOR*ship.H
+    print(f"Occupied area:"+f"{area_cargos/ship_area*100:.2f}%")
+    print(f"Objective function value: {model.m.objVal}")
 
-x_HS = {"carga_1":0, "carga_2":14}
-y_HS = {"carga_1":30, "carga_2":30}
+    logging.info(f"Plotting results...")
+    im.plot_cargos(ship, cargos)
+    im.plot_cargos_inverted(ship, cargos)
+    logging.info(f"Script executed successfully!")
 
-x_HS = {"carga_1":30, "carga_2":30}
-y_HS = {"carga_1":0, "carga_2":14}
+restricted_positions = {1: {'x': 0, 'y':14}, 2: {'x': 14, 'y':30}}
 
-main(H=60, H_DG=5, W=15, T=12, W_CORREDOR=1, x_HS=x_HS, y_HS=y_HS, time_max=20)
+main(H=60, H_DG=8, W=15, T=12, W_CORREDOR=1, restricted_positions = restricted_positions, time_max=120)
     
 
